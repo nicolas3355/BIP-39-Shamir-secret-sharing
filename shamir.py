@@ -1,5 +1,3 @@
-
-
 #
 # SecretSharing.py : distribute a secret amongst a group of participants
 #
@@ -35,7 +33,9 @@
 
 from Cryptodome.Util.py3compat import is_native_int
 from Cryptodome.Util import number
-import secrets
+from Cryptodome.Util.number import long_to_bytes, bytes_to_long
+from Cryptodome.Random import get_random_bytes as rng
+
 
 def _mult_gf2(f1, f2):
     """Multiply two polynomials in GF(2)"""
@@ -74,31 +74,35 @@ def _div_gf2(a, b):
 
 
 class _Element(object):
-    """Element of GF(2^12) field"""
+    """Element of GF(2^128) field"""
 
     # The irreducible polynomial defining this field is 1+x+x^2+x^7+x^128
-    # x^12 + x^6 + x^4 + x^1 + 1
-    #x^11 + x^5 + x^3 + x^1 + 1
-    irr_poly = 1 + 2 + 8 + 32  + 2 ** 11
+    irr_poly = 1 + 2 + 4 + 128 + 2 ** 128
 
     def __init__(self, encoded_value):
         """Initialize the element to a certain value.
         The value passed as parameter is internally encoded as
-        a 11-bit integer, where each bit represents a polynomial
+        a 128-bit integer, where each bit represents a polynomial
         coefficient. The LSB is the constant coefficient.
         """
 
         if is_native_int(encoded_value):
             self._value = encoded_value
+        elif len(encoded_value) == 16:
+            self._value = bytes_to_long(encoded_value)
         else:
-            raise ValueError("The encoded value must be an integer")
+            raise ValueError("The encoded value must be an integer or a 16 byte string")
 
     def __eq__(self, other):
         return self._value == other._value
 
     def __int__(self):
-        """Return the field element"""
+        """Return the field element, encoded as a 128-bit integer."""
         return self._value
+
+    def encode(self):
+        """Return the field element, encoded as a 16 byte string."""
+        return long_to_bytes(self._value, 16)
 
     def __mul__(self, factor):
 
@@ -112,15 +116,15 @@ class _Element(object):
         if self.irr_poly in (f1, f2):
             return _Element(0)
 
-        mask1 = 2 ** 11
+        mask1 = 2 ** 128
         v, z = f1, 0
         while f2:
             # if f2 ^ 1: z ^= v
-            mask2 = int(bin(f2 & 1)[2:] * 11, base=2)
+            mask2 = int(bin(f2 & 1)[2:] * 128, base=2)
             z = (mask2 & (z ^ v)) | ((mask1 - mask2 - 1) & z)
             v <<= 1
             # if v & mask1: v ^= self.irr_poly
-            mask3 = int(bin((v >> 11) & 1)[2:] * 11, base=2)
+            mask3 = int(bin((v >> 128) & 1)[2:] * 128, base=2)
             v = (mask3 & (v ^ self.irr_poly)) | ((mask1 - mask3 - 1) & v)
             f2 >>= 1
         return _Element(z)
@@ -129,7 +133,7 @@ class _Element(object):
         return _Element(self._value ^ term._value)
 
     def inverse(self):
-        """Return the inverse of this element in GF(2^11)."""
+        """Return the inverse of this element in GF(2^128)."""
 
         # We use the Extended GCD algorithm
         # http://en.wikipedia.org/wiki/Polynomial_greatest_common_divisor
@@ -190,7 +194,7 @@ class Shamir(object):
         # c_0 is the encoded secret
         #
 
-        coeffs = [_Element(secrets.randbits(11)) for i in range(k - 1)]
+        coeffs = [_Element(rng(16)) for i in range(k - 1)]
         coeffs.append(_Element(secret))
 
         # Each share is y_i = p(x_i) where x_i is the public index
@@ -203,7 +207,7 @@ class Shamir(object):
                 share = idx * share + coeff
             if ssss:
                 share += _Element(user) ** len(coeffs)
-            return share._value
+            return share
 
         return [(i, make_share(i, coeffs, ssss)) for i in range(1, n + 1)]
 
@@ -261,5 +265,4 @@ class Shamir(object):
                     numerator *= x_m
                     denominator *= x_j + x_m
             result += y_j * numerator * denominator.inverse()
-        return result._value
-
+        return result
