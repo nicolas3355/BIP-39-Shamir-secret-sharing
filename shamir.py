@@ -74,35 +74,53 @@ def _div_gf2(a, b):
 
 
 class _Element(object):
-    """Element of GF(2^128) field"""
+    """Element of GF(2^_Element.field_size) field"""
+
+    # list of irreducible polynomials based on the field sizes
+    # results are taken from the paper titled:
+    # "A Table of Primitive Binary Polynomials
+    # http://poincare.matf.bg.ac.rs/~ezivkovm/publications/primpol1.pdf
+
+    irr_poly_table = {
+            128: 1 + 2**11 + 2**35 + 2**77 + 2**128,
+            160: 1 + 2**30 + 2**56 + 2**101 + 2**160,
+            192: 1 + 2**17 + 2**103 + 2**142 + 2**192,
+            224: 1 + 4 + 2**39 + 2**116 + 2**224,
+            256: 1 + 2**121 + 2**178 + 2**241 + 2**256
+    }
 
     # The irreducible polynomial defining this field is 1+x+x^2+x^7+x^128
-    irr_poly = 1 + 2 + 4 + 128 + 2 ** 128
+    # irr_poly = 1 + 2 + 4 + 128 + 2 ** 128
+    # irr_poly = irr_poly_table[128]
+
+    @staticmethod
+    def set_field_size(field_size):
+        _Element.field_size = field_size
+        _Element.irr_poly = _Element.irr_poly_table[field_size]
 
     def __init__(self, encoded_value):
         """Initialize the element to a certain value.
         The value passed as parameter is internally encoded as
-        a 128-bit integer, where each bit represents a polynomial
+        a _Element.field_size-bit integer, where each bit represents a polynomial
         coefficient. The LSB is the constant coefficient.
         """
-
         if is_native_int(encoded_value):
             self._value = encoded_value
-        elif len(encoded_value) == 16:
+        elif len(encoded_value) == _Element.field_size/8:
             self._value = bytes_to_long(encoded_value)
         else:
-            raise ValueError("The encoded value must be an integer or a 16 byte string")
+            raise ValueError("The encoded value must be an integer or a field_size/8 byte string")
 
     def __eq__(self, other):
         return self._value == other._value
 
     def __int__(self):
-        """Return the field element, encoded as a 128-bit integer."""
+        """Return the field element, encoded as a _Element.field_size-bit integer."""
         return self._value
 
     def encode(self):
-        """Return the field element, encoded as a 16 byte string."""
-        return long_to_bytes(self._value, 16)
+        """Return the field element, encoded as a field_size/8 byte string."""
+        return long_to_bytes(self._value, _Element.field_size/8)
 
     def __mul__(self, factor):
 
@@ -116,15 +134,15 @@ class _Element(object):
         if self.irr_poly in (f1, f2):
             return _Element(0)
 
-        mask1 = 2 ** 128
+        mask1 = 2 ** _Element.field_size
         v, z = f1, 0
         while f2:
             # if f2 ^ 1: z ^= v
-            mask2 = int(bin(f2 & 1)[2:] * 128, base=2)
+            mask2 = int(bin(f2 & 1)[2:] * _Element.field_size, base=2)
             z = (mask2 & (z ^ v)) | ((mask1 - mask2 - 1) & z)
             v <<= 1
             # if v & mask1: v ^= self.irr_poly
-            mask3 = int(bin((v >> 128) & 1)[2:] * 128, base=2)
+            mask3 = int(bin((v >> _Element.field_size) & 1)[2:] * _Element.field_size, base=2)
             v = (mask3 & (v ^ self.irr_poly)) | ((mask1 - mask3 - 1) & v)
             f2 >>= 1
         return _Element(z)
@@ -133,7 +151,7 @@ class _Element(object):
         return _Element(self._value ^ term._value)
 
     def inverse(self):
-        """Return the inverse of this element in GF(2^128)."""
+        """Return the inverse of this element in GF(2^_Element.field_size)."""
 
         # We use the Extended GCD algorithm
         # http://en.wikipedia.org/wiki/Polynomial_greatest_common_divisor
@@ -163,7 +181,7 @@ class Shamir(object):
     """
 
     @staticmethod
-    def split(k, n, secret, ssss=False):
+    def split(k, n, secret, field_size, ssss=False):
         """Split a secret into ``n`` shares.
         The secret can be reconstructed later using just ``k`` shares
         out of the original ``n``.
@@ -176,25 +194,29 @@ class Shamir(object):
           n (integer):
             The number of shares that this method will create.
           secret (byte string):
-            A byte string of 16 bytes (e.g. the AES 128 key).
+            A byte string of field_size/8 bytes (e.g. the AES _Element.field_size key).
+          field_size (integer):
+            field_size must be either 128, 160, 192, 224, 256
+            sets the bit field size
           ssss (bool):
             If ``True``, the shares can be used with the ``ssss`` utility.
             Default: ``False``.
         Return (tuples):
             ``n`` tuples. A tuple is meant for each participant and it contains two items:
             1. the unique index (an integer)
-            2. the share (a byte string, 16 bytes)
+            2. the share (a byte string, field_size/8 bytes)
         """
 
         #
-        # We create a polynomial with random coefficients in GF(2^128):
+        # We create a polynomial with random coefficients in GF(2^_Element.field_size):
         #
         # p(x) = \sum_{i=0}^{k-1} c_i * x^i
         #
         # c_0 is the encoded secret
         #
+        _Element.set_field_size(field_size)
 
-        coeffs = [_Element(rng(16)) for i in range(k - 1)]
+        coeffs = [_Element(rng(field_size//8)) for i in range(k - 1)]
         coeffs.append(_Element(secret))
 
         # Each share is y_i = p(x_i) where x_i is the public index
@@ -212,18 +234,21 @@ class Shamir(object):
         return [(i, make_share(i, coeffs, ssss)) for i in range(1, n + 1)]
 
     @staticmethod
-    def combine(shares, ssss=False):
+    def combine(shares, field_size, ssss=False):
         """Recombine a secret, if enough shares are presented.
         Args:
           shares (tuples):
             The *k* tuples, each containin the index (an integer) and
-            the share (a byte string, 16 bytes long) that were assigned to
+            the share (a byte string, field_size/8 bytes long) that were assigned to
             a participant.
+          field_size (integer):
+            field_size must be either 128, 160, 192, 224, 256
+            sets the bit field size
           ssss (bool):
             If ``True``, the shares were produced by the ``ssss`` utility.
             Default: ``False``.
         Return:
-            The original secret, as a byte string (16 bytes long).
+            The original secret, as a byte string (field_size/8 bytes long).
         """
 
         #
@@ -240,6 +265,7 @@ class Shamir(object):
         # coefficient of L(x).
         #
 
+        _Element.set_field_size(field_size)
         k = len(shares)
 
         gf_shares = []
