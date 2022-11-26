@@ -57,10 +57,10 @@ def split_seed(t, n, mneumonic_seed):
     seed_int = list(map(lambda x: wordlist.index(x), mneumonic_seed))
     seed_big_int = get_integer_from_key(ENT, seed_int)
     shares = Shamir.split(t, n, seed_big_int, ENT)
-    shares = [to_list_of_ints((share[1]._value << (ENT//32)) +
-              get_checksum(ENT, share[1]._value), ENT + ENT//32, 11)
+    shares = [(share[0], to_list_of_ints((share[1]._value << (ENT//32)) +
+              get_checksum(ENT, share[1]._value), ENT + ENT//32, 11))
               for share in shares]
-    shares = [[wordlist[index_word] for index_word in share]
+    shares = [(share[0], [wordlist[index_word] for index_word in share[1]])
               for share in shares]
     return shares
 
@@ -74,11 +74,11 @@ def generate_random_seed(ENT):
 
 
 def combine(t, n, shares):
-    ENT = len(shares[0]) * 11 - (len(shares[0]) * 11)//32
-    shares = [list(map(lambda x: wordlist.index(x), share))
+    ENT = len(shares[0][1]) * 11 - (len(shares[0][1]) * 11)//32
+    shares = [(share[0], list(map(lambda x: wordlist.index(x), share[1])))
               for share in shares]
-    rec = [(i+1, get_integer_from_key(ENT, shares[i]))
-           for i in range(0, len(shares))]
+    rec = [(share[0], get_integer_from_key(ENT, share[1]))
+           for share in shares]
     reconstructed = Shamir.combine(rec, ENT)._value
     reconstructed_final_int = ((reconstructed << ENT//32) +
                                get_checksum(ENT, reconstructed))
