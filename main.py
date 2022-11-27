@@ -8,16 +8,16 @@ from Cryptodome.Util.number import bytes_to_long
 def get_integer_from_key(ENT, key):
     # takes a list of integers each of size 11 bits
     # and constructs one big intger of size ENT
-    key[-1] = key[-1] >> ENT//32  # discard the checksum from the last word
+    l = key[-1] >> ENT//32  # discard the checksum from the last word
 
     s = 0
     for i in range(0, len(key)-1):
         s = s + (key[i] << (ENT - ((i+1) * 11)))
-    s += key[-1]
+    s += l
     return s
 
 
-def get_checksum(ENT, nb):
+def calculate_checksum(ENT, nb):
     # takes a number of size ENT bits and hashes it with sha256
     # returns the first ENT//32 bits of the hash as an integer
     bytes_object = bytes(to_list_of_ints(nb, ENT, 8))
@@ -31,6 +31,20 @@ def append_checksum(ENT, nb_key, checksum):
     # adds the checksum of size EMT//32 to the secret key nb_key
     return (nb_key << ENT//32) + checksum
 
+def is_seed_valid(mneumonic_seed):
+    # checks that the list of words are generated correctly
+    # by checking the checksum
+
+    ENT = len(mneumonic_seed) * 11 - (len(mneumonic_seed) * 11)//32
+    seed_int = list(map(lambda x: wordlist.index(x), mneumonic_seed))
+
+    last_word = seed_int[-1]
+    mask = (1 << ENT//32) - 1
+    extracted_checksum = last_word & mask
+ 
+    seed_big_int = get_integer_from_key(ENT, seed_int)
+    calculated_checksum =  calculate_checksum(ENT, seed_big_int)
+    return extracted_checksum == calculated_checksum
 
 def to_list_of_ints(nb, total, word_size):
     # takes a (ENT + ENT//32) size bit number and produces
@@ -58,7 +72,7 @@ def split_seed(t, n, mneumonic_seed):
     seed_big_int = get_integer_from_key(ENT, seed_int)
     shares = Shamir.split(t, n, seed_big_int, ENT)
     shares = [(share[0], to_list_of_ints((share[1]._value << (ENT//32)) +
-              get_checksum(ENT, share[1]._value), ENT + ENT//32, 11))
+              calculate_checksum(ENT, share[1]._value), ENT + ENT//32, 11))
               for share in shares]
     shares = [(share[0], [wordlist[index_word] for index_word in share[1]])
               for share in shares]
@@ -67,8 +81,12 @@ def split_seed(t, n, mneumonic_seed):
 
 def generate_random_seed(ENT):
     rnd = bytes_to_long(rand_bytes(ENT//8))
-    checksum = get_checksum(ENT, rnd)
+    print(bin(rnd))
+    checksum = calculate_checksum(ENT, rnd)
     seed_number = (rnd << ENT//32) + checksum
+    print(bin(seed_number))
+    print("checksum: "+ str(checksum))
+    print(bin(checksum))
     l = to_list_of_ints(seed_number, ENT + ENT//32, 11)
     return [wordlist[l[i]] for i in range(0, len(l))]
 
@@ -81,6 +99,6 @@ def combine(t, n, shares):
            for share in shares]
     reconstructed = Shamir.combine(rec, ENT)._value
     reconstructed_final_int = ((reconstructed << ENT//32) +
-                               get_checksum(ENT, reconstructed))
+                               calculate_checksum(ENT, reconstructed))
     l = to_list_of_ints(reconstructed_final_int, ENT + ENT//32, 11)
     return ([wordlist[l[i]] for i in range(0, len(l))])
