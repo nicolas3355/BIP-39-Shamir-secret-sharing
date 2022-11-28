@@ -81,12 +81,8 @@ def split_seed(t, n, mneumonic_seed):
 
 def generate_random_seed(ENT):
     rnd = bytes_to_long(rand_bytes(ENT//8))
-    print(bin(rnd))
     checksum = calculate_checksum(ENT, rnd)
     seed_number = (rnd << ENT//32) + checksum
-    print(bin(seed_number))
-    print("checksum: "+ str(checksum))
-    print(bin(checksum))
     l = to_list_of_ints(seed_number, ENT + ENT//32, 11)
     return [wordlist[l[i]] for i in range(0, len(l))]
 
