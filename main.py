@@ -87,7 +87,7 @@ def generate_random_seed(ENT):
     return [wordlist[l[i]] for i in range(0, len(l))]
 
 
-def combine(t, n, shares):
+def combine(shares):
     ENT = len(shares[0][1]) * 11 - (len(shares[0][1]) * 11)//32
     shares = [(share[0], list(map(lambda x: wordlist.index(x), share[1])))
               for share in shares]

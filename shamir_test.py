@@ -14,13 +14,13 @@ def test():
 
         # sample t random shares
         t_shares = sample(shares, t)
-        rec = combine(t, n, t_shares)
+        rec = combine(t_shares)
         # the t shares should reconstruct to the original seed
         assert(all(map((lambda x: x[0] == x[1]), zip(seed, rec))))
 
         # sample another t random shares
         t_shares = sample(shares, t)
-        rec = combine(t, n, t_shares)
+        rec = combine(t_shares)
         # the t shares should reconstruct to the original seed
         assert(all(map((lambda x: x[0] == x[1]), zip(seed, rec))))
-
+test()

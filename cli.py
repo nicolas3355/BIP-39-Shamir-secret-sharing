@@ -1,77 +1,75 @@
+import argparse
 from wordlist import wordlist
-from main import is_seed_valid, split_seed, combine
+from main import is_seed_valid, split_seed, combine, generate_random_seed
 
-options = ["split a seed", "reconstruct shares"]
-seed_length = [12, 15, 18, 21, 24]
-def user_options():
-    print("Please choose:")
-    for idx, element in enumerate(options):
-        print("{}) {}".format(idx+1,element))
-    i = input("Enter number: ")
-    try:
-        if 0 < int(i) <= len(options):
-            return int(i) 
-    except:
-        pass
-    return None
+quote = "\""
 
-def select_seed_length():
-    print("Select your seed length:")
-    for idx, element in enumerate(seed_length):
-        print("{}) {}".format(idx+1,element))
-    i = input("Enter number: ")
-    try:
-        if 0 < int(i) <= len(options):
-            return seed_length[int(i)-1]
-    except:
-        pass
-    return None
+def split(mnemonic, total_shares, required_shares):
+    mnemonic = mnemonic.split(" ")
+    if not is_seed_valid(mnemonic):
+        print("Invalid mnemonic seed.")
+        return None
+    shares = split_seed(required_shares, total_shares, mnemonic)
+    return shares
 
-def select_words(nb, is_share, n=None):
-    words = []
-    if(is_share):
-        share_number = int(input("Please enter share number: "))
-        assert(share_number <= n), "Share number must be between 1 and " + str(n)
+def recover_seed(shares):
+    formatted_shares = []
+    for i, share in shares:
+        share = share.split(" ")
+        if not is_seed_valid(share):
+            print(f"Invalid share {i} : {share}")
+            return None
+        formatted_shares.append((i, share))
+    secret = combine(formatted_shares)
+    return ' '.join(secret)
 
-    print("Please enter your mnemonic seed:")
-    for idx in range(1, nb+1):
-        word = input("Please enter word number " + str(idx)+": ").strip()
-        if word not in wordlist:
-            raise Exception("word must be in word list")
-        words.append(word)
-    # check the checksum whether it's correct or not
-    assert (is_seed_valid(words)), "invalid checksum"
-    print("You have successfully entered you mnemonic seed phrase")
-
-    if is_share:
-        return (share_number, words)
-    return words
-
-def select_thresholds():
-    t = int(input("Please enter the minimum number of shares needed to reconstruct: "))
-    n = int(input("Please enter the total number of shares: "))
-    assert (t <= n), "the total number of shares must be greater than or equal to the number of shares needed for reconstruction"
-    return (t, n)
+def gen_seed(seed_length):
+    choices = [12, 15, 18, 21, 24]
+    if(seed_length not in choices):
+        print("invalid mnemonic length. you choices must be one of the following: 12, 15, 18, 21, 24")
+    ENT = seed_length * 11 - (seed_length * 11)//32
+    return generate_random_seed(ENT)
 
 
-def cli():
-    choice = user_options()
-    if(choice == 1):
-        t, n = select_thresholds()
-        nb = select_seed_length()
-        words = select_words(nb, False)
-        print(words)
-        print(split_seed(t, n, words))
-        
 
-    elif(choice == 2):
-        t, n = select_thresholds()
-        nb = select_seed_length()
-        shares = []
-        for i in range(0, t):
-            shares.append(select_words(nb, True, n))
-        print(shares)
-        print(combine(t, n, shares))
+def main():
+    parser = argparse.ArgumentParser(description="Split and recover a mnemonic seed")
+    subparsers = parser.add_subparsers(dest="command")
 
-cli()
+    split_parser = subparsers.add_parser("split", help="Split a mnemonic seed into shares")
+    split_parser.add_argument("-m", "--mnemonic", required=True, help="Mnemonic seed to split")
+    split_parser.add_argument("-t", "--total", type=int, required=True, help="Total number of shares to generate")
+    split_parser.add_argument("-r", "--required", type=int, required=True, help="Number of shares required to recover the seed")
+
+    recover_parser = subparsers.add_parser("recover", help="Recover a mnemonic seed from shares")
+    recover_parser.add_argument("-i", "--indexes", type=int, nargs='+', required=True, help="The shares indexes in order starting from (starting from 0)")
+    recover_parser.add_argument("-s", "--shares", nargs='+', required=True, help="Shares to use for recovery")
+
+    split_parser = subparsers.add_parser("gen", help="Generates a mnemonic seed")
+    split_parser.add_argument("-n", "--number", type=int, required=True, help="Total number of words in the mnemonic seed")
+
+    args = parser.parse_args()
+
+    if args.command == "split":
+        shares = split(args.mnemonic, args.total, args.required)
+        for share in shares:
+            share_index, share = share
+            print(f" ({share_index},{quote}{' '.join(share)}{quote})")
+    elif args.command == "recover":
+        if(len(args.indexes) != len(args.shares)):
+            print("the number of indexes should match the number of shares")
+        l = []
+        for i in range(0, len(args.indexes)):
+            l.append((args.indexes[i], args.shares[i]))
+        secret = recover_seed(l)
+        print(f"Recovered secret: {secret}")
+    elif args.command == "gen":
+        secret = gen_seed(args.number)
+        secret = " ".join(secret)
+        print(f"Mnenomic seed: {quote}{secret}{quote}")
+    else:
+        print("Invalid command. Use 'split' or 'recover'.")
+
+if __name__ == "__main__":
+    main()
 
